@@ -9,6 +9,8 @@
 import UIKit
 import GooglePlaces
 import MapKit
+import Contacts
+
 
 class SpotDetailViewController: UIViewController {
   
@@ -21,16 +23,19 @@ class SpotDetailViewController: UIViewController {
   
   var spot: Spot!
   let regionDistance: CLLocationDistance = 750 //This is about half a mile (750m)
+  var locationManager: CLLocationManager!
+  var  currentLocation: CLLocation!
   
   override func viewDidLoad() {
     super.viewDidLoad()
     
-    
+     
     //mapView.delegate = self
     
     
     if spot == nil {
       spot = Spot()
+      getLocation()
     }
     
     let region = MKCoordinateRegion(center: spot.coordinate, latitudinalMeters: regionDistance, longitudinalMeters: regionDistance)
@@ -77,6 +82,8 @@ class SpotDetailViewController: UIViewController {
   
   @IBAction func saveButtonPressed(_ sender: UIBarButtonItem) {
     //
+    spot.name = nameField.text ?? ""
+    spot.address = addressField.text ?? ""
     spot.saveData { success in
       if success {
         self.leaveViewController()
@@ -122,6 +129,80 @@ extension SpotDetailViewController: GMSAutocompleteViewControllerDelegate {
   
   func didUpdateAutocompletePredictions(_ viewController: GMSAutocompleteViewController) {
     UIApplication.shared.isNetworkActivityIndicatorVisible = false
+  }
+  
+}
+
+extension SpotDetailViewController: CLLocationManagerDelegate {
+  
+  func getLocation() {
+    locationManager = CLLocationManager()
+    locationManager.delegate = self
+  }
+  
+  func handleLocationAuthorizationStatus(status: CLAuthorizationStatus) {
+    switch status {
+    case .notDetermined:
+      locationManager.requestWhenInUseAuthorization()
+    case .authorizedAlways, .authorizedWhenInUse:
+      locationManager.requestLocation()
+    case .denied:
+      showAlertToPrivacySettings(title: "User has not authorized location services", message: "It may be that parental controls are restricting location use in the app")
+    default:
+       break
+    }
+  }
+  
+  func showAlertToPrivacySettings(title: String, message: String) {
+    let alertController = UIAlertController(title: title, message: message, preferredStyle: .alert)
+    guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else {
+      print("Something went wrong with the URLString")
+      return
+    }
+    
+    let settingsAction = UIAlertAction(title: "Settings", style: .default) { value in
+    UIApplication.shared.open(settingsURL, options: [:], completionHandler: nil)
+    }
+    let cancelAction = UIAlertAction(title: "Cancel", style: .cancel, handler: nil)
+    alertController.addAction(settingsAction)
+    alertController.addAction(cancelAction)
+    present(alertController, animated: true, completion: nil)
+    
+  }
+  
+  func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
+    handleLocationAuthorizationStatus(status: status)
+  }
+  
+  func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    guard spot.name == "" else {
+      return
+    }
+    let geoCoder = CLGeocoder()
+    var name = ""
+    var address = ""
+    currentLocation = locations.last
+    spot.coordinate = currentLocation.coordinate
+    geoCoder.reverseGeocodeLocation(currentLocation, completionHandler: { (placemarks, error) in
+      if placemarks != nil {
+        let placemark = placemarks?.last
+        name = placemark?.name ?? "Name Unknown"
+        //need to import Contacts to use this code:
+        if let postalAddress = placemark?.postalAddress {
+          address = CNPostalAddressFormatter.string(from: postalAddress, style: .mailingAddress)
+        }
+
+      } else {
+        print("ERROR. Error code: \(error?.localizedDescription ?? "")")
+      }
+      self.spot.name = name
+      self.spot.address = address
+      self.updateUserInterface()
+    })
+  }
+  
+  func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+    print("Failed to get user location")
   }
   
 }
